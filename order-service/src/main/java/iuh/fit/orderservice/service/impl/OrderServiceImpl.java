@@ -88,6 +88,21 @@ public class OrderServiceImpl implements OrderService {
         return mapToResponse(saved);
     }
 
+    @Override
+    public OrderResponse getOrderById(String orderId) {
+        UUID id = parseUuid(orderId, "Invalid orderId");
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        return mapToResponse(order);
+    }
+
+    @Override
+    public List<OrderResponse> getOrdersByCustomerId(String customerId) {
+        UUID customerUuid = parseUuid(customerId, "Invalid customerId");
+        List<Order> orders = orderRepository.findByCustomerIdOrderByOrderDateDesc(customerUuid);
+        return orders.stream().map(this::mapToResponse).toList();
+    }
+
     private void validateCreateRequest(CreateOrderRequest request) {
         if (request == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Request body is required");
@@ -182,6 +197,14 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Failed to generate order code");
+    }
+
+    private UUID parseUuid(String value, String message) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, message);
+        }
     }
 
     private OrderResponse mapToResponse(Order order) {
