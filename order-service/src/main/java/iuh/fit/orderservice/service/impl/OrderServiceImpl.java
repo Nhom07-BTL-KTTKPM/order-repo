@@ -16,6 +16,9 @@ import iuh.fit.orderservice.entity.OrderItem;
 import iuh.fit.orderservice.entity.OrderStatus;
 import iuh.fit.orderservice.entity.PaymentMethod;
 import iuh.fit.orderservice.entity.PaymentStatus;
+import iuh.fit.orderservice.event.OrderCreatedEvent;
+import iuh.fit.orderservice.event.OrderEmailEvent;
+import iuh.fit.orderservice.event.OrderEventPublisher;
 import iuh.fit.orderservice.repo.OrderRepository;
 import iuh.fit.orderservice.service.OrderService;
 import iuh.fit.shared.error.BusinessException;
@@ -39,15 +42,18 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final CartServiceClient cartServiceClient;
     private final CatalogServiceClient catalogServiceClient;
+    private final OrderEventPublisher orderEventPublisher;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
             CartServiceClient cartServiceClient,
-            CatalogServiceClient catalogServiceClient
+            CatalogServiceClient catalogServiceClient,
+            OrderEventPublisher orderEventPublisher
     ) {
         this.orderRepository = orderRepository;
         this.cartServiceClient = cartServiceClient;
         this.catalogServiceClient = catalogServiceClient;
+        this.orderEventPublisher = orderEventPublisher;
     }
 
     @Override
@@ -85,6 +91,10 @@ public class OrderServiceImpl implements OrderService {
         order.setTotal(subtotal);
 
         Order saved = orderRepository.save(order);
+
+        orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
+        orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
+
         cartServiceClient.clearCart(request.customerId());
         return mapToResponse(saved);
     }
@@ -129,6 +139,8 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Order saved = orderRepository.save(order);
+
+        orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
     }
 
@@ -191,6 +203,36 @@ public class OrderServiceImpl implements OrderService {
         }
         return items;
     }
+
+        private OrderCreatedEvent buildOrderCreatedEvent(Order order) {
+        List<OrderCreatedEvent.OrderCreatedItem> items = order.getItems() == null
+            ? List.of()
+            : order.getItems().stream()
+            .map(item -> new OrderCreatedEvent.OrderCreatedItem(
+                item.getProductVariantId(),
+                item.getQuantity()
+            ))
+            .toList();
+
+        return new OrderCreatedEvent(
+            order.getId(),
+            order.getCustomerId(),
+            order.getOrderCode(),
+            items
+        );
+        }
+
+        private OrderEmailEvent buildOrderEmailEvent(Order order) {
+        String updatedAt = order.getUpdatedAt() == null ? null : order.getUpdatedAt().toString();
+        return new OrderEmailEvent(
+            order.getEmail(),
+            order.getRecipientName(),
+            order.getOrderCode(),
+            order.getStatus() == null ? null : order.getStatus().name(),
+            order.getTotal(),
+            updatedAt
+        );
+        }
 
     private String resolveImageUrl(ProductResponse product) {
         if (product == null || product.images() == null || product.images().isEmpty()) {
