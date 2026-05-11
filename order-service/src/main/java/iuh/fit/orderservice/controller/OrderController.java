@@ -2,6 +2,7 @@ package iuh.fit.orderservice.controller;
 
 import iuh.fit.orderservice.dto.CreateOrderRequest;
 import iuh.fit.orderservice.dto.OrderResponse;
+import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
 import iuh.fit.orderservice.service.OrderService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,5 +34,13 @@ public class OrderController {
     @GetMapping("/customer/{customerId}")
     public ResponseEntity<List<OrderResponse>> getOrdersByCustomerId(@PathVariable String customerId) {
         return ResponseEntity.ok(orderService.getOrdersByCustomerId(customerId));
+    }
+
+    @PutMapping("/{orderId}/status")
+    public ResponseEntity<OrderResponse> updateOrderStatus(
+            @PathVariable String orderId,
+            @RequestBody UpdateOrderStatusRequest request
+    ) {
+        return ResponseEntity.ok(orderService.updateOrderStatus(orderId, request));
     }
 }
