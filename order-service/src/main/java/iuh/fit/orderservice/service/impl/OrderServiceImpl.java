@@ -10,6 +10,7 @@ import iuh.fit.orderservice.dto.OrderResponse;
 import iuh.fit.orderservice.dto.ProductImageResponse;
 import iuh.fit.orderservice.dto.ProductResponse;
 import iuh.fit.orderservice.dto.ProductVariantResponse;
+import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
 import iuh.fit.orderservice.entity.Order;
 import iuh.fit.orderservice.entity.OrderItem;
 import iuh.fit.orderservice.entity.OrderStatus;
@@ -101,6 +102,34 @@ public class OrderServiceImpl implements OrderService {
         UUID customerUuid = parseUuid(customerId, "Invalid customerId");
         List<Order> orders = orderRepository.findByCustomerIdOrderByOrderDateDesc(customerUuid);
         return orders.stream().map(this::mapToResponse).toList();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse updateOrderStatus(String orderId, UpdateOrderStatusRequest request) {
+        if (request == null || request.status() == null || request.status().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "status is required");
+        }
+
+        UUID id = parseUuid(orderId, "Invalid orderId");
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+
+        OrderStatus newStatus = parseStatus(request.status());
+        order.setStatus(newStatus);
+        order.setUpdatedAt(LocalDateTime.now());
+
+        if (newStatus == OrderStatus.CANCELLED) {
+            order.setCancelReason(request.cancelReason());
+            order.setCancelledAt(LocalDateTime.now());
+        }
+
+        if (newStatus == OrderStatus.DELIVERED) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+
+        Order saved = orderRepository.save(order);
+        return mapToResponse(saved);
     }
 
     private void validateCreateRequest(CreateOrderRequest request) {
@@ -197,6 +226,14 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Failed to generate order code");
+    }
+
+    private OrderStatus parseStatus(String status) {
+        try {
+            return OrderStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid order status");
+        }
     }
 
     private UUID parseUuid(String value, String message) {
