@@ -24,6 +24,7 @@ import iuh.fit.orderservice.service.OrderService;
 import iuh.fit.shared.error.BusinessException;
 import iuh.fit.shared.error.ErrorCode;
 import jakarta.transaction.Transactional;
+import feign.FeignException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -61,7 +62,13 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse createOrder(CreateOrderRequest request) {
         validateCreateRequest(request);
 
-        CartResponse cart = cartServiceClient.getCart(request.customerId());
+        CartResponse cart;
+        try {
+            cart = cartServiceClient.getCart(request.customerId());
+        } catch (FeignException.NotFound e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Cart is empty or not found");
+        }
+        
         if (cart == null || cart.items() == null || cart.items().isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Cart is empty");
         }
@@ -95,7 +102,11 @@ public class OrderServiceImpl implements OrderService {
         orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
 
-        cartServiceClient.clearCart(request.customerId());
+        try {
+            cartServiceClient.clearCart(request.customerId());
+        } catch (FeignException e) {
+            // Ignore if cart clear fails
+        }
         return mapToResponse(saved);
     }
 
@@ -172,7 +183,12 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "Cart item missing productVariantId");
             }
 
-            ProductVariantResponse variant = catalogServiceClient.getVariantById(cartItem.productVariantId());
+            ProductVariantResponse variant;
+            try {
+                variant = catalogServiceClient.getVariantById(cartItem.productVariantId());
+            } catch (FeignException.NotFound e) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Product variant not found");
+            }
             if (variant == null || variant.id() == null) {
                 throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Product variant not found");
             }
@@ -183,7 +199,12 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "Insufficient stock for product variant");
             }
 
-            ProductResponse product = catalogServiceClient.getProductById(variant.productId());
+            ProductResponse product;
+            try {
+                product = catalogServiceClient.getProductById(variant.productId());
+            } catch (FeignException.NotFound e) {
+                product = null;
+            }
             String productName = product == null ? null : product.name();
             String imageUrl = resolveImageUrl(product);
 
