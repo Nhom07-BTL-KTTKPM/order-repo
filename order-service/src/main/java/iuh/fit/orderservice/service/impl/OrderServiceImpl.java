@@ -10,11 +10,15 @@ import iuh.fit.orderservice.dto.OrderResponse;
 import iuh.fit.orderservice.dto.ProductImageResponse;
 import iuh.fit.orderservice.dto.ProductResponse;
 import iuh.fit.orderservice.dto.ProductVariantResponse;
+import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
 import iuh.fit.orderservice.entity.Order;
 import iuh.fit.orderservice.entity.OrderItem;
 import iuh.fit.orderservice.entity.OrderStatus;
 import iuh.fit.orderservice.entity.PaymentMethod;
 import iuh.fit.orderservice.entity.PaymentStatus;
+import iuh.fit.orderservice.event.OrderCreatedEvent;
+import iuh.fit.orderservice.event.OrderEmailEvent;
+import iuh.fit.orderservice.event.OrderEventPublisher;
 import iuh.fit.orderservice.repo.OrderRepository;
 import iuh.fit.orderservice.service.OrderService;
 import iuh.fit.shared.error.BusinessException;
@@ -38,15 +42,18 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final CartServiceClient cartServiceClient;
     private final CatalogServiceClient catalogServiceClient;
+    private final OrderEventPublisher orderEventPublisher;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
             CartServiceClient cartServiceClient,
-            CatalogServiceClient catalogServiceClient
+            CatalogServiceClient catalogServiceClient,
+            OrderEventPublisher orderEventPublisher
     ) {
         this.orderRepository = orderRepository;
         this.cartServiceClient = cartServiceClient;
         this.catalogServiceClient = catalogServiceClient;
+        this.orderEventPublisher = orderEventPublisher;
     }
 
     @Override
@@ -98,6 +105,51 @@ public class OrderServiceImpl implements OrderService {
         Order saved = orderRepository.save(order);
 
         orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
+        orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
+        return mapToResponse(saved);
+    }
+
+    @Override
+    public OrderResponse getOrderById(String orderId) {
+        UUID id = parseUuid(orderId, "Invalid orderId");
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        return mapToResponse(order);
+    }
+
+    @Override
+    public List<OrderResponse> getOrdersByCustomerId(String customerId) {
+        UUID customerUuid = parseUuid(customerId, "Invalid customerId");
+        List<Order> orders = orderRepository.findByCustomerIdOrderByOrderDateDesc(customerUuid);
+        return orders.stream().map(this::mapToResponse).toList();
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse updateOrderStatus(String orderId, UpdateOrderStatusRequest request) {
+        if (request == null || request.status() == null || request.status().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "status is required");
+        }
+
+        UUID id = parseUuid(orderId, "Invalid orderId");
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+
+        OrderStatus newStatus = parseStatus(request.status());
+        order.setStatus(newStatus);
+        order.setUpdatedAt(LocalDateTime.now());
+
+        if (newStatus == OrderStatus.CANCELLED) {
+            order.setCancelReason(request.cancelReason());
+            order.setCancelledAt(LocalDateTime.now());
+        }
+
+        if (newStatus == OrderStatus.DELIVERED) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+
+        Order saved = orderRepository.save(order);
+
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
     }
@@ -162,6 +214,36 @@ public class OrderServiceImpl implements OrderService {
         return items;
     }
 
+        private OrderCreatedEvent buildOrderCreatedEvent(Order order) {
+        List<OrderCreatedEvent.OrderCreatedItem> items = order.getItems() == null
+            ? List.of()
+            : order.getItems().stream()
+            .map(item -> new OrderCreatedEvent.OrderCreatedItem(
+                item.getProductVariantId(),
+                item.getQuantity()
+            ))
+            .toList();
+
+        return new OrderCreatedEvent(
+            order.getId(),
+            order.getCustomerId(),
+            order.getOrderCode(),
+            items
+        );
+        }
+
+        private OrderEmailEvent buildOrderEmailEvent(Order order) {
+        String updatedAt = order.getUpdatedAt() == null ? null : order.getUpdatedAt().toString();
+        return new OrderEmailEvent(
+            order.getEmail(),
+            order.getRecipientName(),
+            order.getOrderCode(),
+            order.getStatus() == null ? null : order.getStatus().name(),
+            order.getTotal(),
+            updatedAt
+        );
+        }
+
     private String resolveImageUrl(ProductResponse product) {
         if (product == null || product.images() == null || product.images().isEmpty()) {
             return null;
@@ -196,6 +278,22 @@ public class OrderServiceImpl implements OrderService {
             }
         }
         throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Failed to generate order code");
+    }
+
+    private OrderStatus parseStatus(String status) {
+        try {
+            return OrderStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid order status");
+        }
+    }
+
+    private UUID parseUuid(String value, String message) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, message);
+        }
     }
 
     private OrderResponse mapToResponse(Order order) {

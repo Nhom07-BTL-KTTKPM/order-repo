@@ -18,6 +18,14 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
 
+order:
+  rabbitmq:
+    notification-exchange: ${ORDER_RABBITMQ_NOTIFICATION_EXCHANGE:notification.exchange}
+    order-exchange: ${ORDER_RABBITMQ_ORDER_EXCHANGE:order.exchange}
+    routing:
+      email-order: ${ORDER_RABBITMQ_ROUTING_EMAIL_ORDER:email.order}
+      order-created: ${ORDER_RABBITMQ_ROUTING_ORDER_CREATED:order.created}
+
 server:
   port: ${SERVER_PORT}
 
