@@ -61,9 +61,21 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse createOrder(CreateOrderRequest request) {
         validateCreateRequest(request);
 
+        if (request.selectedItemIds() == null || request.selectedItemIds().isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "No items selected for checkout");
+        }
+
         CartResponse cart = cartServiceClient.getCart(request.customerId());
         if (cart == null || cart.items() == null || cart.items().isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Cart is empty");
+        }
+
+        List<CartItemResponse> selectedItems = cart.items().stream()
+                .filter(item -> request.selectedItemIds().contains(item.id().toString()))
+                .toList();
+
+        if (selectedItems.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Selected items not found in cart");
         }
 
         Order order = new Order();
@@ -80,7 +92,7 @@ public class OrderServiceImpl implements OrderService {
         order.setOrderDate(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());
 
-        List<OrderItem> items = buildOrderItems(order, cart.items());
+        List<OrderItem> items = buildOrderItems(order, selectedItems);
         order.setItems(items);
 
         BigDecimal subtotal = items.stream()
@@ -94,8 +106,6 @@ public class OrderServiceImpl implements OrderService {
 
         orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
-
-        cartServiceClient.clearCart(request.customerId());
         return mapToResponse(saved);
     }
 
