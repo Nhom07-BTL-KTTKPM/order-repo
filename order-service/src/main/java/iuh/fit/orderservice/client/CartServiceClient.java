@@ -14,4 +14,7 @@ public interface CartServiceClient {
 
     @DeleteMapping("/api/v1/carts/{customerId}")
     void clearCart(@PathVariable("customerId") String customerId);
+
+    @DeleteMapping("/api/v1/carts/{customerId}/items/bulk")
+    void removeItems(@PathVariable("customerId") String customerId, @org.springframework.web.bind.annotation.RequestParam("itemIds") java.util.List<String> itemIds);
 }

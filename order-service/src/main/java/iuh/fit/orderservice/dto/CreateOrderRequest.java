@@ -7,6 +7,7 @@ public record CreateOrderRequest(
         String email,
         String phone,
         String note,
-        String paymentMethod
+        String paymentMethod,
+        java.util.List<String> selectedItemIds
 ) {
 }
