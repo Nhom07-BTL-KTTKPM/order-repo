@@ -343,6 +343,7 @@ public class OrderServiceImpl implements OrderService {
                 order.getNote(),
                 order.getOrderDate(),
                 order.getUpdatedAt(),
+                order.getCancelReason(),
                 items
         );
     }
