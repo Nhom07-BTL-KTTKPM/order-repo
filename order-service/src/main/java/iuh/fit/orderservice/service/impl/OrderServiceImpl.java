@@ -152,6 +152,9 @@ public class OrderServiceImpl implements OrderService {
 
         if (newStatus == OrderStatus.DELIVERED) {
             order.setDeliveredAt(LocalDateTime.now());
+            if (order.getPaymentMethod() == PaymentMethod.COD) {
+                order.setPaymentStatus(PaymentStatus.PAID);
+            }
         }
 
         if (newStatus == OrderStatus.DELIVERY_FAILED){
