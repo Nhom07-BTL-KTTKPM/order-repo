@@ -57,6 +57,12 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public List<OrderResponse> getAllOrders() {
+        List<Order> orders = orderRepository.findAll();
+        return orders.stream().map(this::mapToResponse).toList();
+    }
+
+    @Override
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
         validateCreateRequest(request);
@@ -146,6 +152,11 @@ public class OrderServiceImpl implements OrderService {
 
         if (newStatus == OrderStatus.DELIVERED) {
             order.setDeliveredAt(LocalDateTime.now());
+        }
+
+        if (newStatus == OrderStatus.DELIVERY_FAILED){
+            order.setCancelReason(request.cancelReason());
+            order.setCancelledAt(LocalDateTime.now());
         }
 
         Order saved = orderRepository.save(order);

@@ -6,6 +6,8 @@ import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
 
 import java.util.List;
 
+import org.jspecify.annotations.Nullable;
+
 public interface OrderService {
     OrderResponse createOrder(CreateOrderRequest request);
 
@@ -14,4 +16,6 @@ public interface OrderService {
     List<OrderResponse> getOrdersByCustomerId(String customerId);
 
     OrderResponse updateOrderStatus(String orderId, UpdateOrderStatusRequest request);
+
+    List<OrderResponse> getAllOrders();
 }
