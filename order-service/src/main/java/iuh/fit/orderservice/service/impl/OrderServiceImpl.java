@@ -139,6 +139,10 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(newStatus);
         order.setUpdatedAt(LocalDateTime.now());
 
+        if (request.paymentStatus() != null && !request.paymentStatus().isBlank()) {
+            order.setPaymentStatus(parsePaymentStatus(request.paymentStatus()));
+        }
+
         if (newStatus == OrderStatus.CANCELLED) {
             order.setCancelReason(request.cancelReason());
             order.setCancelledAt(LocalDateTime.now());
@@ -288,6 +292,14 @@ public class OrderServiceImpl implements OrderService {
             return OrderStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid order status");
+        }
+    }
+
+    private PaymentStatus parsePaymentStatus(String status) {
+        try {
+            return PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid payment status");
         }
     }
 
