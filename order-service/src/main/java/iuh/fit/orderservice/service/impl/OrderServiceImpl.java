@@ -7,6 +7,7 @@ import iuh.fit.orderservice.dto.CartResponse;
 import iuh.fit.orderservice.dto.CreateOrderRequest;
 import iuh.fit.orderservice.dto.OrderItemResponse;
 import iuh.fit.orderservice.dto.OrderResponse;
+import iuh.fit.orderservice.dto.ProductSoldUpdateRequest;
 import iuh.fit.orderservice.dto.ProductImageResponse;
 import iuh.fit.orderservice.dto.ProductResponse;
 import iuh.fit.orderservice.dto.ProductVariantResponse;
@@ -30,7 +31,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -141,6 +144,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
 
+        OrderStatus previousStatus = order.getStatus();
         OrderStatus newStatus = parseStatus(request.status());
         order.setStatus(newStatus);
         order.setUpdatedAt(LocalDateTime.now());
@@ -163,6 +167,10 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Order saved = orderRepository.save(order);
+
+        if (previousStatus != OrderStatus.DELIVERED && newStatus == OrderStatus.DELIVERED) {
+            incrementProductTotalSold(saved);
+        }
 
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
@@ -257,6 +265,35 @@ public class OrderServiceImpl implements OrderService {
             updatedAt
         );
         }
+
+    private void incrementProductTotalSold(Order order) {
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            return;
+        }
+
+        Map<UUID, Integer> soldQuantitiesByProduct = new HashMap<>();
+        for (OrderItem item : order.getItems()) {
+            if (item.getProductVariantId() == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Order item missing productVariantId");
+            }
+            if (item.getQuantity() == null || item.getQuantity() <= 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Order item quantity is invalid");
+            }
+
+            ProductVariantResponse variant = catalogServiceClient.getVariantById(item.getProductVariantId());
+            if (variant == null || variant.productId() == null) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Product variant not found");
+            }
+
+            soldQuantitiesByProduct.merge(variant.productId(), item.getQuantity(), Integer::sum);
+        }
+
+        List<ProductSoldUpdateRequest> requests = soldQuantitiesByProduct.entrySet().stream()
+                .map(entry -> new ProductSoldUpdateRequest(entry.getKey(), entry.getValue()))
+                .toList();
+
+        catalogServiceClient.incrementProductTotalSold(requests);
+    }
 
     private String resolveImageUrl(ProductResponse product) {
         if (product == null || product.images() == null || product.images().isEmpty()) {
