@@ -1,5 +1,6 @@
 package iuh.fit.orderservice.controller;
 
+import iuh.fit.orderservice.dto.CreateGuestOrderRequest;
 import iuh.fit.orderservice.dto.CreateOrderRequest;
 import iuh.fit.orderservice.dto.OrderResponse;
 import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
@@ -29,6 +30,19 @@ public class OrderController {
     public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
         OrderResponse response = orderService.createOrder(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/guest")
+    public ResponseEntity<OrderResponse> createGuestOrder(@RequestBody CreateGuestOrderRequest request) {
+        OrderResponse response = orderService.createGuestOrder(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/lookup")
+    public ResponseEntity<OrderResponse> lookupOrder(
+            @RequestParam String orderCode,
+            @RequestParam String email) {
+        return ResponseEntity.ok(orderService.lookupOrder(orderCode, email));
     }
 
     @GetMapping("/{orderId}")

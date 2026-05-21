@@ -4,7 +4,9 @@ import iuh.fit.orderservice.client.CartServiceClient;
 import iuh.fit.orderservice.client.CatalogServiceClient;
 import iuh.fit.orderservice.dto.CartItemResponse;
 import iuh.fit.orderservice.dto.CartResponse;
+import iuh.fit.orderservice.dto.CreateGuestOrderRequest;
 import iuh.fit.orderservice.dto.CreateOrderRequest;
+import iuh.fit.orderservice.dto.GuestOrderItem;
 import iuh.fit.orderservice.dto.OrderItemResponse;
 import iuh.fit.orderservice.dto.OrderResponse;
 import iuh.fit.orderservice.dto.ProductSoldUpdateRequest;
@@ -119,6 +121,42 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Transactional
+    public OrderResponse createGuestOrder(CreateGuestOrderRequest request) {
+        validateGuestRequest(request);
+
+        Order order = new Order();
+        order.setOrderCode(generateOrderCode());
+        order.setCustomerId(null);
+        order.setStatus(OrderStatus.PENDING);
+        order.setPaymentMethod(PaymentMethod.COD);
+        order.setPaymentStatus(PaymentStatus.PENDING);
+        order.setRecipientName(request.recipientName());
+        order.setShippingAddress(request.shippingAddress());
+        order.setEmail(request.email());
+        order.setPhone(request.phone());
+        order.setNote(request.note());
+        order.setOrderDate(LocalDateTime.now());
+        order.setUpdatedAt(LocalDateTime.now());
+
+        List<OrderItem> items = buildGuestOrderItems(order, request.items());
+        order.setItems(items);
+
+        BigDecimal subtotal = items.stream()
+                .map(OrderItem::getTotalPrice)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        order.setSubtotal(subtotal);
+        order.setDiscountAmount(BigDecimal.ZERO);
+        order.setTotal(subtotal);
+
+        Order saved = orderRepository.save(order);
+
+        orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
+        orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
+        return mapToResponse(saved);
+    }
+
+    @Override
     public OrderResponse getOrderById(String orderId) {
         UUID id = parseUuid(orderId, "Invalid orderId");
         Order order = orderRepository.findById(id)
@@ -131,6 +169,19 @@ public class OrderServiceImpl implements OrderService {
         UUID customerUuid = parseUuid(customerId, "Invalid customerId");
         List<Order> orders = orderRepository.findByCustomerIdOrderByOrderDateDesc(customerUuid);
         return orders.stream().map(this::mapToResponse).toList();
+    }
+
+    @Override
+    public OrderResponse lookupOrder(String orderCode, String email) {
+        if (orderCode == null || orderCode.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "orderCode is required");
+        }
+        if (email == null || email.isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "email is required");
+        }
+        Order order = orderRepository.findByOrderCodeAndEmail(orderCode.trim(), email.trim())
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Order not found"));
+        return mapToResponse(order);
     }
 
     @Override
@@ -148,6 +199,10 @@ public class OrderServiceImpl implements OrderService {
         OrderStatus newStatus = parseStatus(request.status());
         order.setStatus(newStatus);
         order.setUpdatedAt(LocalDateTime.now());
+
+        if (request.paymentStatus() != null && !request.paymentStatus().isBlank()) {
+            order.setPaymentStatus(parsePaymentStatus(request.paymentStatus()));
+        }
 
         if (newStatus == OrderStatus.CANCELLED) {
             order.setCancelReason(request.cancelReason());
@@ -195,6 +250,69 @@ public class OrderServiceImpl implements OrderService {
         if (request.phone() == null || request.phone().isBlank()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "phone is required");
         }
+    }
+
+    private void validateGuestRequest(CreateGuestOrderRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Request body is required");
+        }
+        if (request.recipientName() == null || request.recipientName().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "recipientName is required");
+        }
+        if (request.shippingAddress() == null || request.shippingAddress().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "shippingAddress is required");
+        }
+        if (request.email() == null || request.email().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "email is required");
+        }
+        if (request.phone() == null || request.phone().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "phone is required");
+        }
+        if (request.items() == null || request.items().isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "items is required");
+        }
+    }
+
+    private List<OrderItem> buildGuestOrderItems(Order order, List<GuestOrderItem> guestItems) {
+        List<OrderItem> items = new ArrayList<>();
+        for (GuestOrderItem guestItem : guestItems) {
+            if (guestItem.productVariantId() == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "productVariantId is required");
+            }
+            if (guestItem.quantity() <= 0) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "quantity must be greater than 0");
+            }
+
+            ProductVariantResponse variant = catalogServiceClient.getVariantById(guestItem.productVariantId());
+            if (variant == null || variant.id() == null) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Product variant not found");
+            }
+            if (Boolean.FALSE.equals(variant.isActive())) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Product variant is inactive");
+            }
+            if (variant.stockQuantity() != null && guestItem.quantity() > variant.stockQuantity()) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "Insufficient stock for product variant");
+            }
+
+            ProductResponse product = catalogServiceClient.getProductById(variant.productId());
+            String productName = product == null ? null : product.name();
+            String imageUrl = resolveImageUrl(product);
+
+            BigDecimal unitPrice = variant.price() == null ? BigDecimal.ZERO : variant.price();
+            BigDecimal totalPrice = unitPrice.multiply(BigDecimal.valueOf(guestItem.quantity()));
+
+            OrderItem orderItem = new OrderItem();
+            orderItem.setOrder(order);
+            orderItem.setProductVariantId(variant.id());
+            orderItem.setProductName(productName);
+            orderItem.setVariantName(variant.variantName());
+            orderItem.setImageUrl(imageUrl == null ? variant.imageUrl() : imageUrl);
+            orderItem.setQuantity(guestItem.quantity());
+            orderItem.setUnitPrice(unitPrice);
+            orderItem.setTotalPrice(totalPrice);
+            items.add(orderItem);
+        }
+        return items;
     }
 
     private List<OrderItem> buildOrderItems(Order order, List<CartItemResponse> cartItems) {
@@ -336,6 +454,14 @@ public class OrderServiceImpl implements OrderService {
             return OrderStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid order status");
+        }
+    }
+
+    private PaymentStatus parsePaymentStatus(String status) {
+        try {
+            return PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Invalid payment status");
         }
     }
 
