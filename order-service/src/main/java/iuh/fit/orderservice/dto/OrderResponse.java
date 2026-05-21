@@ -29,6 +29,7 @@ public record OrderResponse(
         String note,
         LocalDateTime orderDate,
         LocalDateTime updatedAt,
+        String cancelReason,
         List<OrderItemResponse> items
 ) {
 }
