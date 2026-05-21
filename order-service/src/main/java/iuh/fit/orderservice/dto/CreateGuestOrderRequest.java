@@ -8,6 +8,8 @@ public record CreateGuestOrderRequest(
         String email,
         String phone,
         String note,
-        List<GuestOrderItem> items
+        List<GuestOrderItem> items,
+        String voucherCode,
+        java.math.BigDecimal shippingFee
 ) {
 }

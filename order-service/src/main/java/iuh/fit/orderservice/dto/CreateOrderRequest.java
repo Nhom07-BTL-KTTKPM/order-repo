@@ -8,6 +8,8 @@ public record CreateOrderRequest(
         String phone,
         String note,
         String paymentMethod,
-        java.util.List<String> selectedItemIds
+        java.util.List<String> selectedItemIds,
+        String voucherCode,
+        java.math.BigDecimal shippingFee
 ) {
 }

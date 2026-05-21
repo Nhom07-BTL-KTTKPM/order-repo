@@ -42,6 +42,14 @@ public class Order {
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal discountAmount;
 
+    private UUID voucherId;
+
+    @Column(length = 100)
+    private String voucherCode;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal shippingFee;
+
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal total;
 
@@ -133,6 +141,30 @@ public class Order {
 
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
+    }
+
+    public UUID getVoucherId() {
+        return voucherId;
+    }
+
+    public void setVoucherId(UUID voucherId) {
+        this.voucherId = voucherId;
+    }
+
+    public String getVoucherCode() {
+        return voucherCode;
+    }
+
+    public void setVoucherCode(String voucherCode) {
+        this.voucherCode = voucherCode;
+    }
+
+    public BigDecimal getShippingFee() {
+        return shippingFee;
+    }
+
+    public void setShippingFee(BigDecimal shippingFee) {
+        this.shippingFee = shippingFee;
     }
 
     public BigDecimal getTotal() {

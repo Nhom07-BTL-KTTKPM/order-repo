@@ -26,6 +26,11 @@ order:
       email-order: ${ORDER_RABBITMQ_ROUTING_EMAIL_ORDER:email.order}
       order-created: ${ORDER_RABBITMQ_ROUTING_ORDER_CREATED:order.created}
 
+catalog:
+  internal-api:
+    header-name: ${CATALOG_INTERNAL_API_HEADER_NAME:X-Internal-Api-Key}
+    key: ${CATALOG_INTERNAL_API_KEY:change-me-in-prod}
+
 server:
   port: ${SERVER_PORT}
 

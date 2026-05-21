@@ -12,6 +12,7 @@ import iuh.fit.orderservice.dto.OrderResponse;
 import iuh.fit.orderservice.dto.ProductImageResponse;
 import iuh.fit.orderservice.dto.ProductResponse;
 import iuh.fit.orderservice.dto.ProductVariantResponse;
+import iuh.fit.orderservice.dto.StockAdjustmentRequest;
 import iuh.fit.orderservice.dto.UpdateOrderStatusRequest;
 import iuh.fit.orderservice.entity.Order;
 import iuh.fit.orderservice.entity.OrderItem;
@@ -23,9 +24,14 @@ import iuh.fit.orderservice.event.OrderEmailEvent;
 import iuh.fit.orderservice.event.OrderEventPublisher;
 import iuh.fit.orderservice.repo.OrderRepository;
 import iuh.fit.orderservice.service.OrderService;
+import iuh.fit.orderservice.voucher.dto.VoucherResponseDTO;
+import iuh.fit.orderservice.voucher.dto.VoucherValidationRequestDTO;
+import iuh.fit.orderservice.voucher.dto.VoucherValidationResponseDTO;
+import iuh.fit.orderservice.voucher.service.VoucherService;
 import iuh.fit.shared.error.BusinessException;
 import iuh.fit.shared.error.ErrorCode;
 import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -34,28 +40,39 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class OrderServiceImpl implements OrderService {
 
     private static final DateTimeFormatter ORDER_CODE_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+    private static final BigDecimal ZERO_AMOUNT = BigDecimal.ZERO;
 
     private final OrderRepository orderRepository;
     private final CartServiceClient cartServiceClient;
     private final CatalogServiceClient catalogServiceClient;
     private final OrderEventPublisher orderEventPublisher;
+    private final VoucherService voucherService;
+    private final String catalogInternalHeaderName;
+    private final String catalogInternalApiKey;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
             CartServiceClient cartServiceClient,
             CatalogServiceClient catalogServiceClient,
-            OrderEventPublisher orderEventPublisher
+            OrderEventPublisher orderEventPublisher,
+            VoucherService voucherService,
+            @Value("${catalog.internal-api.header-name:X-Internal-Api-Key}") String catalogInternalHeaderName,
+            @Value("${catalog.internal-api.key:change-me-in-prod}") String catalogInternalApiKey
     ) {
         this.orderRepository = orderRepository;
         this.cartServiceClient = cartServiceClient;
         this.catalogServiceClient = catalogServiceClient;
         this.orderEventPublisher = orderEventPublisher;
+        this.voucherService = voucherService;
+        this.catalogInternalHeaderName = catalogInternalHeaderName;
+        this.catalogInternalApiKey = catalogInternalApiKey;
     }
 
     @Override
@@ -99,13 +116,29 @@ public class OrderServiceImpl implements OrderService {
 
         BigDecimal subtotal = items.stream()
                 .map(OrderItem::getTotalPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            .reduce(ZERO_AMOUNT, BigDecimal::add);
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(BigDecimal.ZERO);
-        order.setTotal(subtotal);
+        BigDecimal shippingFee = resolveShippingFee(request.shippingFee());
+        VoucherApplication voucherApplication = calculateVoucherApplication(request.voucherCode(), order.getCustomerId(), subtotal, shippingFee);
+        order.setDiscountAmount(voucherApplication == null ? ZERO_AMOUNT : voucherApplication.discountAmount());
+        order.setVoucherId(voucherApplication == null ? null : voucherApplication.voucherId());
+        order.setVoucherCode(voucherApplication == null ? null : voucherApplication.voucherCode());
+        order.setShippingFee(shippingFee);
+        order.setTotal(calculateTotal(subtotal, shippingFee, order.getDiscountAmount()));
 
         Order saved = orderRepository.save(order);
 
+        if (voucherApplication != null) {
+            voucherService.redeemVoucher(
+                voucherApplication.voucherId(),
+                saved.getCustomerId(),
+                saved.getId(),
+                subtotal,
+                shippingFee
+            );
+        }
+
+        applyCatalogStockAdjustment(saved);
         orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
@@ -115,6 +148,9 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderResponse createGuestOrder(CreateGuestOrderRequest request) {
         validateGuestRequest(request);
+        if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "Guest order cannot apply voucher");
+        }
 
         Order order = new Order();
         order.setOrderCode(generateOrderCode());
@@ -135,13 +171,18 @@ public class OrderServiceImpl implements OrderService {
 
         BigDecimal subtotal = items.stream()
                 .map(OrderItem::getTotalPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            .reduce(ZERO_AMOUNT, BigDecimal::add);
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(BigDecimal.ZERO);
-        order.setTotal(subtotal);
+        BigDecimal shippingFee = resolveShippingFee(request.shippingFee());
+        order.setDiscountAmount(ZERO_AMOUNT);
+        order.setVoucherId(null);
+        order.setVoucherCode(null);
+        order.setShippingFee(shippingFee);
+        order.setTotal(calculateTotal(subtotal, shippingFee, ZERO_AMOUNT));
 
         Order saved = orderRepository.save(order);
 
+        applyCatalogStockAdjustment(saved);
         orderEventPublisher.publishOrderCreated(buildOrderCreatedEvent(saved));
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
@@ -231,6 +272,9 @@ public class OrderServiceImpl implements OrderService {
         if (request.phone() == null || request.phone().isBlank()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "phone is required");
         }
+        if (request.shippingFee() != null && request.shippingFee().compareTo(ZERO_AMOUNT) < 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "shippingFee must be >= 0");
+        }
     }
 
     private void validateGuestRequest(CreateGuestOrderRequest request) {
@@ -251,6 +295,9 @@ public class OrderServiceImpl implements OrderService {
         }
         if (request.items() == null || request.items().isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "items is required");
+        }
+        if (request.shippingFee() != null && request.shippingFee().compareTo(ZERO_AMOUNT) < 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "shippingFee must be >= 0");
         }
     }
 
@@ -333,6 +380,24 @@ public class OrderServiceImpl implements OrderService {
             items.add(orderItem);
         }
         return items;
+    }
+
+    private void applyCatalogStockAdjustment(Order order) {
+        if (order.getItems() == null || order.getItems().isEmpty()) {
+            return;
+        }
+
+        List<StockAdjustmentRequest.StockAdjustmentItem> stockItems = order.getItems().stream()
+                .map(item -> new StockAdjustmentRequest.StockAdjustmentItem(
+                        item.getProductVariantId(),
+                        item.getQuantity()
+                ))
+                .toList();
+
+        catalogServiceClient.applyStockAdjustment(
+                Map.of(catalogInternalHeaderName, catalogInternalApiKey),
+                new StockAdjustmentRequest(stockItems)
+        );
     }
 
         private OrderCreatedEvent buildOrderCreatedEvent(Order order) {
@@ -448,6 +513,9 @@ public class OrderServiceImpl implements OrderService {
                 order.getStatus(),
                 order.getSubtotal(),
                 order.getDiscountAmount(),
+            order.getVoucherId(),
+            order.getVoucherCode(),
+            order.getShippingFee(),
                 order.getTotal(),
                 order.getPaymentMethod(),
                 order.getPaymentStatus(),
@@ -460,5 +528,43 @@ public class OrderServiceImpl implements OrderService {
                 order.getUpdatedAt(),
                 items
         );
+    }
+
+    private VoucherApplication calculateVoucherApplication(String voucherCode, UUID customerId, BigDecimal subtotal, BigDecimal shippingFee) {
+        if (voucherCode == null || voucherCode.isBlank()) {
+            return null;
+        }
+
+        VoucherResponseDTO voucher = voucherService.getVoucherByCode(voucherCode);
+        VoucherValidationResponseDTO validation = voucherService.validateVoucher(
+                voucher.getId(),
+                VoucherValidationRequestDTO.builder()
+                        .customerId(customerId)
+                        .orderAmount(subtotal)
+                        .shippingFee(shippingFee)
+                        .build()
+        );
+
+        if (!validation.isValid()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, validation.getMessage());
+        }
+
+        BigDecimal discountAmount = validation.getDiscountAmount() == null ? ZERO_AMOUNT : validation.getDiscountAmount();
+        return new VoucherApplication(voucher.getId(), voucher.getCode(), discountAmount);
+    }
+
+    private BigDecimal resolveShippingFee(BigDecimal shippingFee) {
+        return shippingFee == null ? BigDecimal.valueOf(30000) : shippingFee;
+    }
+
+    private BigDecimal calculateTotal(BigDecimal subtotal, BigDecimal shippingFee, BigDecimal discountAmount) {
+        BigDecimal total = subtotal.add(shippingFee).subtract(discountAmount);
+        if (total.compareTo(ZERO_AMOUNT) < 0) {
+            return ZERO_AMOUNT;
+        }
+        return total;
+    }
+
+    private record VoucherApplication(UUID voucherId, String voucherCode, BigDecimal discountAmount) {
     }
 }
