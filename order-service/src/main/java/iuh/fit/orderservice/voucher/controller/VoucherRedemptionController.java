@@ -16,7 +16,7 @@ import java.util.UUID;
  * REST controller cung cấp các API tra cứu lịch sử sử dụng voucher.
  */
 @RestController
-@RequestMapping("/api/v1/orders/voucher/redemptions")
+@RequestMapping("/api/v1/orders/voucher-redemptions")
 @RequiredArgsConstructor
 public class VoucherRedemptionController {
 

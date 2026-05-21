@@ -27,7 +27,7 @@ import java.util.UUID;
  * REST controller cung cấp các API quản lý voucher.
  */
 @RestController
-@RequestMapping("/api/v1/orders/voucher")
+@RequestMapping("/api/v1/orders/vouchers")
 @RequiredArgsConstructor
 public class VoucherController {
 
@@ -129,27 +129,4 @@ public class VoucherController {
         return ResponseEntity.ok(voucherService.validateVoucher(voucherId, request));
     }
 
-    /**
-     * Lấy danh sách voucher phục vụ kiểm thử nhanh trên gateway.
-     *
-     * @return danh sách voucher trong hệ thống
-     */
-    @GetMapping("/test")
-    public ResponseEntity<List<VoucherResponseDTO>> testGetVouchers() {
-        return ResponseEntity.ok(voucherService.getAllVouchers());
-    }
-
-    /**
-     * Kiểm thử điều kiện áp dụng voucher theo mã định danh.
-     *
-     * @param voucherId mã định danh voucher
-     * @param request dữ liệu đơn hàng dùng để kiểm tra
-     * @return kết quả kiểm tra voucher
-     */
-    @PostMapping("/test/{voucherId}/validate")
-    public ResponseEntity<VoucherValidationResponseDTO> testValidateVoucher(
-            @PathVariable UUID voucherId,
-            @Valid @RequestBody VoucherValidationRequestDTO request) {
-        return ResponseEntity.ok(voucherService.validateVoucher(voucherId, request));
-    }
 }
