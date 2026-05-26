@@ -264,10 +264,6 @@ public class OrderServiceImpl implements OrderService {
 
         Order saved = orderRepository.save(order);
 
-        if (previousStatus != OrderStatus.DELIVERED && newStatus == OrderStatus.DELIVERED) {
-            incrementProductTotalSold(saved);
-        }
-
         orderEventPublisher.publishOrderEmail(buildOrderEmailEvent(saved));
         return mapToResponse(saved);
     }
