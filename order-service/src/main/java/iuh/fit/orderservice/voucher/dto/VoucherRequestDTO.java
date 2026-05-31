@@ -2,6 +2,7 @@ package iuh.fit.orderservice.voucher.dto;
 
 import iuh.fit.orderservice.voucher.entity.VoucherStatus;
 import iuh.fit.orderservice.voucher.entity.VoucherType;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -74,9 +75,11 @@ public class VoucherRequestDTO {
 
     /** Thời điểm voucher bắt đầu có hiệu lực. */
     @NotNull(message = "Ngày bắt đầu không được để trống")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime startDate;
 
     /** Thời điểm voucher hết hiệu lực. */
     @NotNull(message = "Ngày kết thúc không được để trống")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime endDate;
 }
