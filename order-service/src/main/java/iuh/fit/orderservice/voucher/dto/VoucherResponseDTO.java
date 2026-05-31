@@ -2,6 +2,7 @@ package iuh.fit.orderservice.voucher.dto;
 
 import iuh.fit.orderservice.voucher.entity.VoucherStatus;
 import iuh.fit.orderservice.voucher.entity.VoucherType;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -56,9 +57,11 @@ public class VoucherResponseDTO {
     private VoucherStatus status;
 
     /** Thời điểm voucher bắt đầu có hiệu lực. */
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime startDate;
 
     /** Thời điểm voucher hết hiệu lực. */
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime endDate;
 
     /** Thời điểm voucher được tạo. */
