@@ -1,0 +1,51 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: order-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO}
+    open-in-view: false
+  rabbitmq:
+    host: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+
+order:
+  rabbitmq:
+    notification-exchange: ${ORDER_RABBITMQ_NOTIFICATION_EXCHANGE:notification.exchange}
+    order-exchange: ${ORDER_RABBITMQ_ORDER_EXCHANGE:order.exchange}
+    routing:
+      email-order: ${ORDER_RABBITMQ_ROUTING_EMAIL_ORDER:email.order}
+      order-created: ${ORDER_RABBITMQ_ROUTING_ORDER_CREATED:order.created}
+
+catalog:
+  internal-api:
+    header-name: ${CATALOG_INTERNAL_API_HEADER_NAME:X-Internal-Api-Key}
+    key: ${CATALOG_INTERNAL_API_KEY:change-me-in-prod}
+
+server:
+  port: ${SERVER_PORT}
+
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: ${EUREKA_DEFAULT_ZONE}
+  instance:
+    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS}
+    ip-address: ${EUREKA_INSTANCE_IP_ADDRESS}
+    hostname: ${EUREKA_INSTANCE_HOSTNAME}
+
+auth:
+  jwt:
+    issuer: ${AUTH_JWT_ISSUER}
+    secret: ${AUTH_JWT_SECRET}
